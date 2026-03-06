@@ -245,6 +245,121 @@ function createStreamFnWithExtraParams(
   return wrappedStreamFn;
 }
 
+<<<<<<< HEAD
+=======
+/**
+ * Split the Anthropic system prompt at the stable/volatile boundary marker
+ * into two separate text blocks for independent caching. The stable block
+ * (config-derived sections) stays cached across requests even when the
+ * volatile block (workspace files, runtime info) changes.
+ *
+ * Handles both string and array forms of payload.system:
+ * - String: split at the marker into two text blocks with cache_control.
+ * - Array: find the text block containing the marker, split it, and
+ *   preserve surrounding blocks and existing cache_control on the final block.
+ *
+ * When no marker is found, the payload is left unchanged (existing
+ * pi-ai cacheRetention behaviour applies).
+ */
+function createAnthropicSystemSplitWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    if (typeof model.provider !== "string" || model.provider !== "anthropic") {
+      return underlying(model, context, options);
+    }
+
+    const originalOnPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload) => {
+        if (payload && typeof payload === "object") {
+          const payloadObj = payload as Record<string, unknown>;
+          const system = payloadObj.system;
+
+          if (typeof system === "string" && system.includes(STABLE_PROMPT_BOUNDARY)) {
+            const markerIndex = system.indexOf(STABLE_PROMPT_BOUNDARY);
+            const stableText = system.slice(0, markerIndex).trimEnd();
+            const volatileText = system
+              .slice(markerIndex + STABLE_PROMPT_BOUNDARY.length)
+              .trimStart();
+
+            const blocks: Array<Record<string, unknown>> = [];
+            if (stableText) {
+              blocks.push({
+                type: "text",
+                text: stableText,
+                cache_control: { type: "ephemeral" },
+              });
+            }
+            if (volatileText) {
+              blocks.push({
+                type: "text",
+                text: volatileText,
+                cache_control: { type: "ephemeral" },
+              });
+            }
+            if (blocks.length > 0) {
+              payloadObj.system = blocks;
+            }
+          } else if (Array.isArray(system)) {
+            // Find and split the text block that contains the boundary marker.
+            const idx = system.findIndex(
+              (block: unknown) =>
+                block &&
+                typeof block === "object" &&
+                (block as Record<string, unknown>).type === "text" &&
+                typeof (block as Record<string, unknown>).text === "string" &&
+                ((block as Record<string, unknown>).text as string).includes(
+                  STABLE_PROMPT_BOUNDARY,
+                ),
+            );
+            if (idx !== -1) {
+              const block = system[idx] as Record<string, unknown>;
+              const text = block.text as string;
+              const markerIndex = text.indexOf(STABLE_PROMPT_BOUNDARY);
+              const stableText = text.slice(0, markerIndex).trimEnd();
+              const volatileText = text
+                .slice(markerIndex + STABLE_PROMPT_BOUNDARY.length)
+                .trimStart();
+
+              const newBlocks: Array<Record<string, unknown>> = [];
+              // Preserve blocks before the split block
+              for (let i = 0; i < idx; i++) {
+                newBlocks.push(system[i] as Record<string, unknown>);
+              }
+              if (stableText) {
+                newBlocks.push({
+                  type: "text",
+                  text: stableText,
+                  cache_control: { type: "ephemeral" },
+                });
+              }
+              if (volatileText) {
+                // Preserve existing cache_control from the original block on the volatile part
+                const existingCacheControl = block.cache_control;
+                newBlocks.push({
+                  type: "text",
+                  text: volatileText,
+                  ...(existingCacheControl
+                    ? { cache_control: existingCacheControl }
+                    : { cache_control: { type: "ephemeral" } }),
+                });
+              }
+              // Preserve blocks after the split block
+              for (let i = idx + 1; i < system.length; i++) {
+                newBlocks.push(system[i] as Record<string, unknown>);
+              }
+              payloadObj.system = newBlocks;
+            }
+          }
+        }
+        originalOnPayload?.(payload, model);
+      },
+    });
+  };
+}
+
+>>>>>>> 40aea4cfa8 (feat: split system prompt into stable+volatile blocks for cache efficiency)
 function resolveAliasedParamValue(
   sources: Array<Record<string, unknown> | undefined>,
   snakeCaseKey: string,

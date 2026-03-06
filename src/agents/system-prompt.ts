@@ -9,6 +9,17 @@ import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import type { EmbeddedSandboxInfo } from "./pi-embedded-runner/types.js";
 import { sanitizeForPromptLiteral } from "./sanitize-for-prompt.js";
 
+<<<<<<< HEAD
+=======
+/**
+ * Marker inserted between stable (config-derived) and volatile (file-derived)
+ * sections of the system prompt. Anthropic-specific payload wrappers split on
+ * this marker to create two separate system blocks for independent caching.
+ * Non-Anthropic providers see the marker as an invisible HTML comment.
+ */
+export const STABLE_PROMPT_BOUNDARY = "<!--STABLE_PROMPT_BOUNDARY-->";
+
+>>>>>>> 40aea4cfa8 (feat: split system prompt into stable+volatile blocks for cache efficiency)
 /**
  * Controls which hardcoded sections are included in the system prompt.
  * - "full": All sections (default, for main agent)
@@ -615,6 +626,16 @@ export function buildAgentSystemPrompt(params: {
     lines.push("## Reasoning Format", reasoningHint, "");
   }
 
+<<<<<<< HEAD
+=======
+  // Insert stable/volatile boundary marker. Everything above this point is
+  // config-derived and stable across requests within a session. Everything
+  // below (context files, runtime) is loaded from disk or per-request state.
+  // Non-Anthropic providers see this as an invisible HTML comment.
+  // Anthropic-specific payload wrappers split here for independent caching.
+  lines.push(STABLE_PROMPT_BOUNDARY);
+
+>>>>>>> 40aea4cfa8 (feat: split system prompt into stable+volatile blocks for cache efficiency)
   const contextFiles = params.contextFiles ?? [];
   const validContextFiles = contextFiles.filter(
     (file) => typeof file.path === "string" && file.path.trim().length > 0,

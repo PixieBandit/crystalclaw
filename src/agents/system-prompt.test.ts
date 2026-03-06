@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { typedCases } from "../test-utils/typed-cases.js";
 import { buildSubagentSystemPrompt } from "./subagent-announce.js";
-import { buildAgentSystemPrompt, buildRuntimeLine } from "./system-prompt.js";
+import {
+  buildAgentSystemPrompt,
+  buildRuntimeLine,
+  STABLE_PROMPT_BOUNDARY,
+} from "./system-prompt.js";
 
 describe("buildAgentSystemPrompt", () => {
   it("formats owner section for plain, hash, and missing owner lists", () => {
@@ -738,6 +742,78 @@ describe("buildAgentSystemPrompt", () => {
 
     expect(prompt).toContain("## Reactions");
     expect(prompt).toContain("Reactions are enabled for Telegram in MINIMAL mode.");
+  });
+
+  it("inserts stable/volatile boundary marker before context files", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      contextFiles: [
+        { path: "AGENTS.md", content: "Agent config" },
+      ],
+    });
+
+    expect(prompt).toContain(STABLE_PROMPT_BOUNDARY);
+
+    const markerIndex = prompt.indexOf(STABLE_PROMPT_BOUNDARY);
+    const contextIndex = prompt.indexOf("# Project Context");
+    expect(markerIndex).toBeLessThan(contextIndex);
+  });
+
+  it("places stable sections before the boundary marker", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      skillsPrompt: "<available_skills><skill><name>test</name></skill></available_skills>",
+      contextFiles: [
+        { path: "AGENTS.md", content: "Agent config" },
+      ],
+    });
+
+    const markerIndex = prompt.indexOf(STABLE_PROMPT_BOUNDARY);
+    const stableSection = prompt.slice(0, markerIndex);
+
+    // Stable section should include config-derived sections
+    expect(stableSection).toContain("## Tooling");
+    expect(stableSection).toContain("## Safety");
+    expect(stableSection).toContain("## Skills");
+    expect(stableSection).toContain("## Workspace");
+
+    // Volatile section should include context files
+    const volatileSection = prompt.slice(markerIndex + STABLE_PROMPT_BOUNDARY.length);
+    expect(volatileSection).toContain("# Project Context");
+    expect(volatileSection).toContain("Agent config");
+    expect(volatileSection).toContain("## Runtime");
+  });
+
+  it("stable section does not contain volatile workspace file content", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      contextFiles: [
+        { path: "TOOLS.md", content: "Volatile tools content xyz123" },
+      ],
+    });
+
+    const markerIndex = prompt.indexOf(STABLE_PROMPT_BOUNDARY);
+    const stableSection = prompt.slice(0, markerIndex);
+
+    expect(stableSection).not.toContain("Volatile tools content xyz123");
+    expect(stableSection).not.toContain("# Project Context");
+  });
+
+  it("includes boundary marker even without context files", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+    });
+
+    expect(prompt).toContain(STABLE_PROMPT_BOUNDARY);
+  });
+
+  it("includes boundary marker in minimal prompt mode", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      promptMode: "minimal",
+    });
+
+    expect(prompt).toContain(STABLE_PROMPT_BOUNDARY);
   });
 });
 
