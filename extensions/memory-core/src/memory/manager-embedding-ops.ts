@@ -25,9 +25,10 @@ const FTS_TABLE = "chunks_fts";
 const EMBEDDING_CACHE_TABLE = "embedding_cache";
 const EMBEDDING_BATCH_MAX_TOKENS = 8000;
 const EMBEDDING_INDEX_CONCURRENCY = 4;
-const EMBEDDING_RETRY_MAX_ATTEMPTS = 3;
-const EMBEDDING_RETRY_BASE_DELAY_MS = 500;
-const EMBEDDING_RETRY_MAX_DELAY_MS = 8000;
+const EMBEDDING_RETRY_MAX_ATTEMPTS = 6;
+const EMBEDDING_RETRY_BASE_DELAY_MS = 2000;
+const EMBEDDING_RETRY_MAX_DELAY_MS = 65_000;
+const EMBEDDING_INTER_BATCH_DELAY_MS = 800;
 const BATCH_FAILURE_LIMIT = 2;
 const EMBEDDING_QUERY_TIMEOUT_REMOTE_MS = 60_000;
 const EMBEDDING_QUERY_TIMEOUT_LOCAL_MS = 5 * 60_000;
@@ -192,8 +193,14 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     if (!provider) {
       throw new Error("Cannot embed batch in FTS-only mode (no embedding provider)");
     }
+    const isLocal = provider.id === "ollama" || provider.id === "local";
     let cursor = 0;
-    for (const batch of batches) {
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx];
+      // Throttle remote providers to avoid rate limits (Gemini: 100 RPM)
+      if (!isLocal && batchIdx > 0 && EMBEDDING_INTER_BATCH_DELAY_MS > 0) {
+        await new Promise((resolve) => setTimeout(resolve, EMBEDDING_INTER_BATCH_DELAY_MS));
+      }
       const inputs = batch.map((chunk) => chunk.embeddingInput ?? { text: chunk.text });
       const hasStructuredInputs = inputs.some((input) => hasNonTextEmbeddingParts(input));
       if (hasStructuredInputs && !provider.embedBatchInputs) {
