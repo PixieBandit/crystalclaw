@@ -21,6 +21,7 @@ import { cleanToolSchemaForGemini } from "../pi-tools.schema.js";
 import {
   sanitizeToolCallInputs,
   stripToolResultDetails,
+  stripServerSideToolBlocks,
   sanitizeToolUseResultPairing,
 } from "../session-transcript-repair.js";
 import type { TranscriptPolicy } from "../transcript-policy.js";
@@ -613,7 +614,8 @@ export async function sanitizeSessionHistory(params: {
   const droppedThinking = policy.dropThinkingBlocks
     ? dropThinkingBlocks(sanitizedImages)
     : sanitizedImages;
-  const sanitizedToolCalls = sanitizeToolCallInputs(droppedThinking, {
+  const strippedServerSide = stripServerSideToolBlocks(droppedThinking);
+  const sanitizedToolCalls = sanitizeToolCallInputs(strippedServerSide, {
     allowedToolNames: params.allowedToolNames,
   });
   const repairedTools = policy.repairToolUseResultPairing
