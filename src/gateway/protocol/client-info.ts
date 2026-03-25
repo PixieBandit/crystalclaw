@@ -9,6 +9,8 @@ export const GATEWAY_CLIENT_IDS = {
   IOS_APP: "openclaw-ios",
   ANDROID_APP: "openclaw-android",
   NODE_HOST: "node-host",
+  MOLTMOBILE: "moltbot-mobile",
+  CRYSTAL_CHAT: "crystal-chat",
   TEST: "test",
   FINGERPRINT: "fingerprint",
   PROBE: "openclaw-probe",
@@ -27,6 +29,8 @@ export const GATEWAY_CLIENT_MODES = {
   BACKEND: "backend",
   NODE: "node",
   PROBE: "probe",
+  MOLTMOBILE: "moltmobile",
+  CRYSTAL_CHAT: "crystal-chat",
   TEST: "test",
 } as const;
 
