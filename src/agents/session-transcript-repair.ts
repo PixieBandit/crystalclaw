@@ -197,6 +197,60 @@ export type ToolCallInputRepairOptions = {
 
 export type ErroredAssistantResultPolicy = "preserve" | "drop";
 
+/**
+ * Strip server-side tool blocks (code_execution, code_execution_tool_result)
+ * from assistant message content arrays.  These are ephemeral server-side
+ * execution artifacts; replaying them in history causes API 400 errors when
+ * the result half is missing ("code_execution tool use without corresponding
+ * code_execution_tool_result block").
+ */
+export function stripServerSideToolBlocks(messages: AgentMessage[]): AgentMessage[] {
+  const SERVER_SIDE_BLOCK_TYPES = new Set([
+    "code_execution",
+    "code_execution_tool_result",
+    "tool_search_tool_result",
+  ]);
+
+  let touched = false;
+  const out: AgentMessage[] = [];
+  for (const msg of messages) {
+    if (
+      !msg ||
+      typeof msg !== "object" ||
+      (msg as { role?: unknown }).role !== "assistant" ||
+      !Array.isArray((msg as { content?: unknown }).content)
+    ) {
+      out.push(msg);
+      continue;
+    }
+
+    const assistant = msg as Extract<AgentMessage, { role: "assistant" }>;
+    const filtered = (assistant.content as Array<{ type?: unknown }>).filter(
+      (block) =>
+        !block ||
+        typeof block !== "object" ||
+        typeof block.type !== "string" ||
+        !SERVER_SIDE_BLOCK_TYPES.has(block.type),
+    );
+
+    if (filtered.length === (assistant.content as unknown[]).length) {
+      out.push(msg);
+      continue;
+    }
+
+    touched = true;
+    if (filtered.length === 0) {
+      out.push({
+        ...assistant,
+        content: [{ type: "text", text: "[server-side tool execution omitted]" }],
+      } as AgentMessage);
+    } else {
+      out.push({ ...assistant, content: filtered } as AgentMessage);
+    }
+  }
+  return touched ? out : messages;
+}
+
 export type ToolUseResultPairingOptions = {
   erroredAssistantResultPolicy?: ErroredAssistantResultPolicy;
 };

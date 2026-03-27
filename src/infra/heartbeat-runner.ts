@@ -190,6 +190,12 @@ function resolveHeartbeatSession(
     return { sessionKey: mainSessionKey, storePath, store, entry: mainEntry };
   }
 
+  // When mainOnly is enabled, always use the main session regardless of
+  // any forced session key from event-driven wakes.
+  if (heartbeat?.mainOnly) {
+    return { sessionKey: mainSessionKey, storePath, store, entry: mainEntry };
+  }
+
   const forced = forcedSessionKey?.trim();
   if (forced) {
     const forcedCandidate = toAgentStoreSessionKey({
@@ -1102,13 +1108,19 @@ export function startHeartbeatRunner(opts: {
         if (!targetAgent) {
           return { status: "skipped", reason: "disabled" };
         }
+        // When mainOnly is enabled, strip the requested session key so the
+        // heartbeat always resolves to the main session instead of the
+        // originating event's session.
+        const effectiveSessionKey = targetAgent.heartbeat?.mainOnly
+          ? undefined
+          : requestedSessionKey;
         try {
           const res = await runOnce({
             cfg: state.cfg,
             agentId: targetAgent.agentId,
             heartbeat: targetAgent.heartbeat,
             reason,
-            sessionKey: requestedSessionKey,
+            sessionKey: effectiveSessionKey,
             deps: { runtime: state.runtime },
           });
           if (res.status !== "skipped" || res.reason !== "disabled") {

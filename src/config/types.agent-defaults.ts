@@ -267,6 +267,14 @@ export type AgentDefaultsConfig = {
      */
     isolatedSession?: boolean;
     /**
+     * When true, heartbeat always runs in the agent's main session and ignores
+     * forced session keys from event-driven wakes (exec completions, cron events).
+     * This prevents heartbeat prompts from leaking into topic/non-main sessions.
+     *
+     * Default: false (event-driven wakes can target the originating session).
+     */
+    mainOnly?: boolean;
+    /**
      * When enabled, deliver the model's reasoning payload for heartbeat runs (when available)
      * as a separate message prefixed with `Reasoning:` (same as `/reasoning on`).
      *

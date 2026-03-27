@@ -245,8 +245,7 @@ function createStreamFnWithExtraParams(
   return wrappedStreamFn;
 }
 
-<<<<<<< HEAD
-=======
+
 /**
  * Split the Anthropic system prompt at the stable/volatile boundary marker
  * into two separate text blocks for independent caching. The stable block
@@ -359,7 +358,7 @@ function createAnthropicSystemSplitWrapper(baseStreamFn: StreamFn | undefined): 
   };
 }
 
->>>>>>> 40aea4cfa8 (feat: split system prompt into stable+volatile blocks for cache efficiency)
+
 function resolveAliasedParamValue(
   sources: Array<Record<string, unknown> | undefined>,
   snakeCaseKey: string,
