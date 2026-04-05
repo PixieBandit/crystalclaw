@@ -376,7 +376,18 @@ async function agentCommandInternal(
       throw acpResolution.error;
     }
 
-    if (acpResolution?.kind === "ready" && sessionKey) {
+    // ── CrystalClaw: Skip ACP when Agent SDK harness is active ─────────────
+    // The ACP path (acpManager.runTurn) bypasses runAgentAttempt() where our
+    // first-party Agent SDK harness lives. When the harness is enabled, fall
+    // through to runAgentAttempt() instead.
+    const _agentSdkTransport = (process.env.CRYSTALCLAW_AGENT_SDK_TRANSPORT ?? "enabled") as string;
+    const _skipAcpForHarness = _agentSdkTransport !== "disabled";
+    if (_skipAcpForHarness) {
+      log.info("[crystalclaw] skipping ACP path — routing to Agent SDK harness");
+    }
+    // ── End CrystalClaw ─────────────────────────────────────────────────────
+
+    if (acpResolution?.kind === "ready" && sessionKey && !_skipAcpForHarness) {
       const startedAt = Date.now();
       registerAgentRunContext(runId, {
         sessionKey,
