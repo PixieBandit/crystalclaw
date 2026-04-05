@@ -98,6 +98,35 @@ type ApiKeyInfo = ResolvedProviderAuth;
 export async function runEmbeddedPiAgent(
   params: RunEmbeddedPiAgentParams,
 ): Promise<EmbeddedPiRunResult> {
+  // ── CrystalClaw: Intercept ALL Anthropic requests at the lowest level ──
+  // This catches webchat (chat.send), heartbeat, cron, and API paths.
+  const _sdkTransport = (process.env.CRYSTALCLAW_AGENT_SDK_TRANSPORT ?? "enabled") as string;
+  const _provider = params.provider?.toLowerCase() ?? "";
+  if (_sdkTransport !== "disabled" && (_provider.includes("anthropic") || !_provider)) {
+    const { runAnthropicHarness } = await import("../anthropic-harness/run.js");
+    log.info("[crystalclaw] intercepting at runEmbeddedPiAgent — routing to Agent SDK harness", {
+      sessionKey: params.sessionKey,
+      provider: params.provider,
+    });
+    return runAnthropicHarness({
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      agentId: params.agentId,
+      runId: params.runId,
+      prompt: params.prompt,
+      workspaceDir: params.workspaceDir,
+      model: params.model ?? params.provider,
+      provider: params.provider ?? "anthropic",
+      timeoutMs: params.timeoutMs,
+      abortSignal: params.abortSignal,
+      config: params.config,
+      extraSystemPrompt: params.extraSystemPrompt,
+      messageChannel: params.messageChannel,
+      senderIsOwner: params.senderIsOwner,
+    });
+  }
+  // ── End CrystalClaw ──────────────────────────────────────────────────
+
   const sessionLane = resolveSessionLane(params.sessionKey?.trim() || params.sessionId);
   const globalLane = resolveGlobalLane(params.lane);
   const enqueueGlobal =
