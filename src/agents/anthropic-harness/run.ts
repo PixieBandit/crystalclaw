@@ -16,6 +16,11 @@ import { loadConfig, type OpenClawConfig } from "../../config/config.js";
 import { buildEmbeddedSystemPrompt } from "../pi-embedded-runner/system-prompt.js";
 import { resolveAgentIdentity } from "../identity.js";
 import { buildModelAliasLines } from "../model-alias-lines.js";
+import {
+  emitAgentEvent,
+  registerAgentRunContext,
+  clearAgentRunContext,
+} from "../../infra/agent-events.js";
 import { createOpenClawMcpBridge, type BridgeableTool } from "./mcp-tool-bridge.js";
 import { processAgentSdkStream, type ReplyCallbacks } from "./event-adapter.js";
 import type { EmbeddedPiRunResult, EmbeddedPiRunMeta } from "../pi-embedded-runner/types.js";
@@ -179,7 +184,21 @@ export async function runAnthropicHarness(
     hasTools: (params.tools?.length ?? 0) > 0,
   });
 
-  // Emit lifecycle start
+  // Register run context so emitAgentEvent attaches the sessionKey
+  // (needed for webchat UI to receive the events for this session)
+  registerAgentRunContext(params.runId, {
+    sessionKey: params.sessionKey,
+  });
+
+  // Emit lifecycle start via the global event system (webchat subscribes to this)
+  emitAgentEvent({
+    runId: params.runId,
+    stream: "lifecycle",
+    data: {
+      phase: "start",
+      startedAt,
+    },
+  });
   params.onAgentEvent?.({
     stream: "lifecycle",
     data: {
@@ -264,9 +283,11 @@ export async function runAnthropicHarness(
     });
 
     // Process the stream through our event adapter
+    // Pass runId so the adapter can emit assistant text events to the webchat UI
     const adapterResult = await processAgentSdkStream(
       queryStream as AsyncGenerator<Record<string, unknown>, void>,
       {
+        runId: params.runId,
         onPartialReply: params.onPartialReply,
         onBlockReply: params.onBlockReply,
         onBlockReplyFlush: params.onBlockReplyFlush,
@@ -319,6 +340,9 @@ export async function runAnthropicHarness(
       ? [{ text: adapterResult.resultText, isError: adapterResult.isError }]
       : [];
 
+    // Clean up run context
+    clearAgentRunContext(params.runId);
+
     return {
       payloads,
       meta,
@@ -332,7 +356,16 @@ export async function runAnthropicHarness(
       error: err instanceof Error ? err.message : String(err),
     });
 
-    // Emit lifecycle error
+    // Emit lifecycle error via global events (webchat UI) + callback
+    emitAgentEvent({
+      runId: params.runId,
+      stream: "lifecycle",
+      data: {
+        phase: "error",
+        endedAt: Date.now(),
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     params.onAgentEvent?.({
       stream: "lifecycle",
       data: {
@@ -341,6 +374,9 @@ export async function runAnthropicHarness(
         error: err instanceof Error ? err.message : String(err),
       },
     });
+
+    // Clean up run context
+    clearAgentRunContext(params.runId);
 
     return {
       payloads: [

@@ -14,10 +14,13 @@
  */
 
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
+import { emitAgentEvent } from "../../infra/agent-events.js";
 
 const log = createSubsystemLogger("anthropic-harness:event-adapter");
 
 export type ReplyCallbacks = {
+  /** Run ID for emitting agent events to the webchat UI */
+  runId?: string;
   onPartialReply?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
   onBlockReply?: (payload: {
     text?: string;
@@ -70,8 +73,10 @@ export async function processAgentSdkStream(
   let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
   let currentTextBuffer = "";
+  let accumulatedText = "";
   let isStreaming = false;
   let hasEmittedStart = false;
+  const runId = callbacks.runId;
 
   for await (const msg of messages) {
     const type = msg.type as string;
@@ -116,7 +121,19 @@ export async function processAgentSdkStream(
             if (text) {
               isStreaming = true;
               currentTextBuffer += text;
+              accumulatedText += text;
               await callbacks.onPartialReply?.({ text });
+              // Emit assistant delta to webchat UI via global event system
+              if (runId) {
+                emitAgentEvent({
+                  runId,
+                  stream: "assistant",
+                  data: {
+                    text: accumulatedText,
+                    delta: text,
+                  },
+                });
+              }
             }
           } else if (deltaType === "thinking_delta") {
             const thinking = delta.thinking as string;
@@ -227,6 +244,22 @@ export async function processAgentSdkStream(
           };
         }
 
+        // Emit lifecycle end to webchat UI
+        if (runId) {
+          emitAgentEvent({
+            runId,
+            stream: "lifecycle",
+            data: {
+              phase: isError ? "error" : "end",
+              endedAt: Date.now(),
+              durationMs,
+              numTurns,
+              stopReason,
+              isError,
+              usage,
+            },
+          });
+        }
         callbacks.onAgentEvent?.({
           stream: "lifecycle",
           data: {
