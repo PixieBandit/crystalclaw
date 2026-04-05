@@ -11,6 +11,7 @@ import {
 import type { ProviderRuntimeModel } from "../../plugins/types.js";
 import { resolveCacheRetention } from "./anthropic-cache-retention.js";
 import { createAnthropicToolPayloadCompatibilityWrapper } from "./anthropic-family-tool-payload-compat.js";
+import { createAnthropicOAuthVersionWrapper } from "./anthropic-oauth-version-wrapper.js";
 import { createBedrockNoCacheWrapper, isAnthropicBedrockModel } from "./bedrock-stream-wrappers.js";
 import { createGoogleThinkingPayloadWrapper } from "./google-stream-wrappers.js";
 import { log } from "./logger.js";
@@ -36,6 +37,7 @@ import {
   resolveOpenAITextVerbosity,
 } from "./openai-stream-wrappers.js";
 import { streamWithPayloadPatch } from "./stream-payload-utils.js";
+import { STABLE_PROMPT_BOUNDARY } from "../system-prompt.js";
 
 const defaultProviderRuntimeDeps = {
   prepareProviderExtraParams: prepareProviderExtraParamsRuntime,
@@ -454,6 +456,9 @@ function applyPrePluginStreamWrappers(ctx: ApplyExtraParamsContext): void {
     config: ctx.cfg,
     workspaceDir: ctx.workspaceDir,
   });
+
+  // Sync OAuth user-agent version with installed Claude Code to prevent 401s
+  ctx.agent.streamFn = createAnthropicOAuthVersionWrapper(ctx.agent.streamFn);
 }
 
 function applyPostPluginStreamWrappers(

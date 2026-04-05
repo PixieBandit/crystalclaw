@@ -131,21 +131,33 @@ export function createAnthropicBetaHeadersWrapper(
 ): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
   return (model, context, options) => {
+    // NOTE: options?.apiKey may be undefined at wrapper level because pi-ai
+    // resolves the API key internally inside streamAnthropic. We cannot
+    // reliably detect OAuth here, so always include the OAuth betas
+    // (claude-code-20250219, oauth-2025-04-20). These are harmless for
+    // API-key auth and required for OAuth — pi-ai's createClient merges
+    // them via mergeHeaders where later sources win, so including them here
+    // ensures the OAuth path in pi-ai never has its betas overwritten.
     const isOauth = isAnthropicOAuthApiKey(options?.apiKey);
     const requestedContext1m = betas.includes(ANTHROPIC_CONTEXT_1M_BETA);
+    // For OAuth, context-1m is rejected by Anthropic. When we can positively
+    // detect OAuth (apiKey available), filter it. When we can't detect
+    // (apiKey undefined), still filter it to be safe — context-1m is set via
+    // config and the user can't use it with OAuth auth anyway.
+    const mayBeOauth = isOauth || options?.apiKey === undefined;
     const effectiveBetas =
-      isOauth && requestedContext1m
+      mayBeOauth && requestedContext1m
         ? betas.filter((beta) => beta !== ANTHROPIC_CONTEXT_1M_BETA)
         : betas;
-    if (isOauth && requestedContext1m) {
+    if (mayBeOauth && requestedContext1m) {
       log.warn(
         `ignoring context1m for Anthropic subscription (OAuth setup-token) auth on ${model.provider}/${model.id}; falling back to the standard context window because Anthropic rejects context-1m beta with OAuth auth`,
       );
     }
 
-    const piAiBetas = isOauth
-      ? (PI_AI_OAUTH_ANTHROPIC_BETAS as readonly string[])
-      : (PI_AI_DEFAULT_ANTHROPIC_BETAS as readonly string[]);
+    // Always include OAuth betas — they're harmless for API-key auth and
+    // required for OAuth. See note above about options?.apiKey being undefined.
+    const piAiBetas = PI_AI_OAUTH_ANTHROPIC_BETAS as readonly string[];
     const allBetas = [...new Set([...piAiBetas, ...effectiveBetas])];
     return underlying(model, context, {
       ...options,

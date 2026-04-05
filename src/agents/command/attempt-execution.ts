@@ -27,6 +27,7 @@ import { runEmbeddedPiAgent } from "../pi-embedded.js";
 import { buildWorkspaceSkillSnapshot } from "../skills.js";
 import { resolveAgentRunContext } from "./run-context.js";
 import type { AgentCommandOpts } from "./types.js";
+import { runAnthropicHarness, shouldUseAnthropicHarness } from "../anthropic-harness/index.js";
 
 const log = createSubsystemLogger("agents/agent-command");
 
@@ -431,6 +432,40 @@ export function runAgentAttempt(params: {
       throw err;
     });
   }
+
+  // ── CrystalClaw: Anthropic Agent SDK Harness ──────────────────────────
+  // Route Anthropic requests through the Agent SDK (Claude Code subprocess)
+  // for first-party API status. Falls through to pi-ai for non-Anthropic.
+  // Configure via CRYSTALCLAW_AGENT_SDK_TRANSPORT env var: "enabled" | "disabled" | "auto"
+  const resolvedProvider = params.providerOverride ?? "anthropic";
+  // CrystalClaw: default to "enabled" for first-party Anthropic requests.
+  // Set CRYSTALCLAW_AGENT_SDK_TRANSPORT=disabled to fall back to pi-ai.
+  const agentSdkTransport = (process.env.CRYSTALCLAW_AGENT_SDK_TRANSPORT ?? "enabled") as
+    | "auto"
+    | "enabled"
+    | "disabled";
+  const _useHarness = shouldUseAnthropicHarness({ provider: resolvedProvider, agentSdkTransport });
+  log.info(
+    `[crystalclaw] harness check: provider=${resolvedProvider} transport=${agentSdkTransport} useHarness=${_useHarness}`,
+  );
+  if (_useHarness) {
+    log.info("[crystalclaw] routing to Anthropic Agent SDK harness");
+    return runAnthropicHarness({
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+      agentId: params.sessionAgentId,
+      runId: params.runId,
+      prompt: effectivePrompt,
+      workspaceDir: params.workspaceDir,
+      model: params.modelOverride,
+      provider: resolvedProvider,
+      timeoutMs: params.timeoutMs,
+      abortSignal: params.opts.abortSignal,
+      onAgentEvent: params.onAgentEvent,
+      // Tools will be added in a follow-up when we wire the OpenClaw tool factory
+    });
+  }
+  // ── End CrystalClaw Harness ──────────────────────────────────────────
 
   return runEmbeddedPiAgent({
     sessionId: params.sessionId,
