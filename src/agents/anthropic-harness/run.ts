@@ -9,8 +9,13 @@
  * can be swapped in at the dispatch point in attempt-execution.ts.
  */
 
+import os from "node:os";
 import { query, type Options as AgentSdkOptions } from "@anthropic-ai/claude-agent-sdk";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
+import { loadConfig, type OpenClawConfig } from "../../config/config.js";
+import { buildEmbeddedSystemPrompt } from "../pi-embedded-runner/system-prompt.js";
+import { resolveAgentIdentity } from "../identity.js";
+import { buildModelAliasLines } from "../model-alias-lines.js";
 import { createOpenClawMcpBridge, type BridgeableTool } from "./mcp-tool-bridge.js";
 import { processAgentSdkStream, type ReplyCallbacks } from "./event-adapter.js";
 import type { EmbeddedPiRunResult, EmbeddedPiRunMeta } from "../pi-embedded-runner/types.js";
@@ -38,8 +43,21 @@ export type AnthropicHarnessParams = {
   timeoutMs: number;
   abortSignal?: AbortSignal;
 
-  // System prompt (pre-built by OpenClaw)
+  // OpenClaw config for building system prompt
+  config?: OpenClawConfig;
+
+  // System prompt (pre-built by OpenClaw, overrides auto-build)
   systemPrompt?: string;
+
+  // Extra system prompt to append
+  extraSystemPrompt?: string;
+
+  // Channel context
+  messageChannel?: string;
+  senderIsOwner?: boolean;
+
+  // Skills
+  skillsPrompt?: string;
 
   // OpenClaw tools to bridge via MCP
   tools?: BridgeableTool[];
@@ -72,21 +90,73 @@ function resolveAgentSdkModel(model?: string): string | undefined {
 }
 
 /**
+ * Build the OpenClaw system prompt with full identity, personality, memory hints,
+ * channel context, tools, etc. Falls back to a simplified version if the full
+ * builder isn't available.
+ */
+function buildOpenClawSystemPrompt(params: AnthropicHarnessParams): string {
+  if (params.systemPrompt) {
+    return params.systemPrompt;
+  }
+
+  const cfg = params.config ?? loadConfig();
+  const agentId = params.agentId ?? "main";
+  const model = resolveAgentSdkModel(params.model) ?? "claude-sonnet-4-6";
+
+  try {
+    const systemPrompt = buildEmbeddedSystemPrompt({
+      workspaceDir: params.workspaceDir,
+      extraSystemPrompt: params.extraSystemPrompt,
+      reasoningTagHint: false,
+      promptMode: "full",
+      acpEnabled: false,
+      runtimeInfo: {
+        agentId,
+        host: os.hostname(),
+        os: `${os.platform()} ${os.release()}`,
+        arch: os.arch(),
+        node: process.version,
+        model,
+        provider: params.provider ?? "anthropic",
+        channel: params.messageChannel,
+      },
+      tools: [],
+      modelAliasLines: buildModelAliasLines(cfg),
+      userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      skillsPrompt: params.skillsPrompt,
+    });
+
+    log.debug("built OpenClaw system prompt", {
+      length: systemPrompt.length,
+      agentId,
+    });
+
+    return systemPrompt;
+  } catch (err) {
+    log.warn("failed to build full system prompt, using minimal", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Minimal fallback — at least include identity name
+    const identity = resolveAgentIdentity(cfg, agentId);
+    return identity?.name
+      ? `You are ${identity.name}.`
+      : "You are a helpful AI assistant.";
+  }
+}
+
+/**
  * Build the prompt string that gets sent to the Agent SDK.
  *
- * The Agent SDK manages its own system prompt, but we can prepend OpenClaw's
- * context as part of the user message or use the systemPrompt option.
+ * Prepends the OpenClaw system prompt (with identity, personality, memory,
+ * channel context, etc.) as system context so Claude Code sees the full
+ * personality bootstrap.
  */
 function buildEffectivePrompt(params: AnthropicHarnessParams): string {
-  // If we have a system prompt from OpenClaw, prepend it as context
-  // The Agent SDK will also add its own Claude Code system prompt
-  if (params.systemPrompt) {
-    return (
-      `<system-context>\n${params.systemPrompt}\n</system-context>\n\n` +
-      params.prompt
-    );
-  }
-  return params.prompt;
+  const systemPrompt = buildOpenClawSystemPrompt(params);
+  return (
+    `<system-context>\n${systemPrompt}\n</system-context>\n\n` +
+    params.prompt
+  );
 }
 
 /**

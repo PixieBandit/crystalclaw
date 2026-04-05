@@ -462,7 +462,12 @@ export function runAgentAttempt(params: {
       timeoutMs: params.timeoutMs,
       abortSignal: params.opts.abortSignal,
       onAgentEvent: params.onAgentEvent,
-      // Tools will be added in a follow-up when we wire the OpenClaw tool factory
+      // Pass OpenClaw config for full system prompt with identity/personality
+      config: params.cfg,
+      extraSystemPrompt: params.opts.extraSystemPrompt,
+      messageChannel: params.messageChannel as string | undefined,
+      senderIsOwner: params.opts.senderIsOwner,
+      skillsPrompt: params.skillsSnapshot?.prompt,
     });
   }
   // ── End CrystalClaw Harness ──────────────────────────────────────────
